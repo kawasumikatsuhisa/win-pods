@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinRT (Windows.Devices.Bluetooth.*) と Win32 P/Invoke を使うため Windows 専用 TFM -->
+    <TargetFramework>$(WinPodsWindowsTargetFramework)</TargetFramework>
+    <SupportedOSPlatformVersion>$(WinPodsSupportedOSPlatformVersion)</SupportedOSPlatformVersion>
+    <RootNamespace>WinPods.Windows</RootNamespace>
+    <AssemblyName>WinPods.Windows</AssemblyName>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinPods.Core\WinPods.Core.csproj" />
+  </ItemGroup>
+
+</Project>

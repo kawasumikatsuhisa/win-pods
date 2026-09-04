@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      Core は OS 非依存に保つ (net8.0)。
+      Proximity Pairing のデコードや状態管理は WinRT に触れないため、
+      Linux/macOS の CI でもビルド・テストできる。
+    -->
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>WinPods.Core</RootNamespace>
+    <AssemblyName>WinPods.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

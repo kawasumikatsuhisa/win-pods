@@ -1,0 +1,62 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35222.181
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{85F02FEA-F40A-4368-8688-1721C52FA1AF}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{14C9C6FD-7783-408B-8062-2C3CD0230AB3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{AF1FC6F4-8404-454B-B195-F5A0EE8CAFE1}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitignore = .gitignore
+		Directory.Build.props = Directory.Build.props
+		global.json = global.json
+		README.md = README.md
+	EndProjectSection
+EndProject
+Project("{9A19103F-16F7-32DF-9BE9-C1C7A2D0F1A7}") = "WinPods.Core", "src\WinPods.Core\WinPods.Core.csproj", "{F7A88786-C489-456B-BC22-28C494BFE5E3}"
+EndProject
+Project("{9A19103F-16F7-32DF-9BE9-C1C7A2D0F1A7}") = "WinPods.Windows", "src\WinPods.Windows\WinPods.Windows.csproj", "{C5896B6C-692F-4373-9710-8050689FA71D}"
+EndProject
+Project("{9A19103F-16F7-32DF-9BE9-C1C7A2D0F1A7}") = "WinPods.App", "src\WinPods.App\WinPods.App.csproj", "{6806CF0C-2DD3-47FF-8C84-357099506A35}"
+EndProject
+Project("{9A19103F-16F7-32DF-9BE9-C1C7A2D0F1A7}") = "WinPods.Core.Tests", "tests\WinPods.Core.Tests\WinPods.Core.Tests.csproj", "{17281922-7BA3-4827-9503-83CBC0785B6A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F7A88786-C489-456B-BC22-28C494BFE5E3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F7A88786-C489-456B-BC22-28C494BFE5E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F7A88786-C489-456B-BC22-28C494BFE5E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F7A88786-C489-456B-BC22-28C494BFE5E3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C5896B6C-692F-4373-9710-8050689FA71D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C5896B6C-692F-4373-9710-8050689FA71D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C5896B6C-692F-4373-9710-8050689FA71D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C5896B6C-692F-4373-9710-8050689FA71D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6806CF0C-2DD3-47FF-8C84-357099506A35}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6806CF0C-2DD3-47FF-8C84-357099506A35}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6806CF0C-2DD3-47FF-8C84-357099506A35}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6806CF0C-2DD3-47FF-8C84-357099506A35}.Release|Any CPU.Build.0 = Release|Any CPU
+		{17281922-7BA3-4827-9503-83CBC0785B6A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{17281922-7BA3-4827-9503-83CBC0785B6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{17281922-7BA3-4827-9503-83CBC0785B6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{17281922-7BA3-4827-9503-83CBC0785B6A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F7A88786-C489-456B-BC22-28C494BFE5E3} = {85F02FEA-F40A-4368-8688-1721C52FA1AF}
+		{C5896B6C-692F-4373-9710-8050689FA71D} = {85F02FEA-F40A-4368-8688-1721C52FA1AF}
+		{6806CF0C-2DD3-47FF-8C84-357099506A35} = {85F02FEA-F40A-4368-8688-1721C52FA1AF}
+		{17281922-7BA3-4827-9503-83CBC0785B6A} = {14C9C6FD-7783-408B-8062-2C3CD0230AB3}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F98346EB-8F18-4F77-806D-EB8D52AF1BF3}
+	EndGlobalSection
+EndGlobal

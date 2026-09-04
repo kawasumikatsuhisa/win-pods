@@ -1,0 +1,15 @@
+<Application x:Class="WinPods.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- ダーク基調のポップアップ配色 (将来はシステムテーマ連動にする) -->
+            <SolidColorBrush x:Key="PopupBackgroundBrush" Color="#F22B2B2B" />
+            <SolidColorBrush x:Key="PopupBorderBrush" Color="#40FFFFFF" />
+            <SolidColorBrush x:Key="PrimaryTextBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#B3FFFFFF" />
+            <SolidColorBrush x:Key="AccentBrush" Color="#FF2F6FED" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

@@ -1,0 +1,25 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <Product>WinPods</Product>
+    <Company>WinPods</Company>
+    <Authors>WinPods contributors</Authors>
+    <Version>0.1.0</Version>
+    <NeutralLanguage>ja-JP</NeutralLanguage>
+  </PropertyGroup>
+
+  <!-- Windows 固有プロジェクトで共通に使う TFM/SDK バージョン -->
+  <PropertyGroup>
+    <WinPodsWindowsTargetFramework>net8.0-windows10.0.19041.0</WinPodsWindowsTargetFramework>
+    <WinPodsSupportedOSPlatformVersion>10.0.17763.0</WinPodsSupportedOSPlatformVersion>
+  </PropertyGroup>
+
+</Project>
