@@ -51,6 +51,28 @@ WPF からもそのまま呼べるため、WinUI 3 を選ぶ動機は薄い。
 - A2DP Sink: `{0000110B-0000-1000-8000-00805F9B34FB}`
 - Hands-Free: `{0000111E-0000-1000-8000-00805F9B34FB}`
 
+#### 実測: BluetoothSetServiceState が 87 を返す環境がある
+
+Windows 11 build 26200 + AirPods Pro で、`BluetoothSetServiceState` が
+A2DP / HFP どちらも `ERROR_INVALID_PARAMETER(87)` を返す事例を確認している。
+このとき、
+
+- `BluetoothGetDeviceInfo` は成功する (構造体サイズ 560、登録済み・認証済みとも True)
+- `BluetoothEnumerateInstalledServices` にも `110b` (A2DP Sink) と
+  `111e` (HFP) の両方が含まれている
+
+つまり GUID もアドレスも構造体レイアウトも正しいのに拒否される。原因は未特定。
+
+このため接続処理は単発では諦めず、次の順で試して最初に実際に接続できたものを採る:
+
+1. ラジオハンドルを指定して `BluetoothSetServiceState(ENABLE)`
+2. `hRadio` に NULL を渡して同じ操作
+3. WinRT の `GetRfcommServicesAsync(Uncached)` で SDP 問い合わせを行い、
+   ACL リンクを張らせてオーディオドライバの自動接続を促す
+
+どの手法がどう失敗したかは UI のステータス行に残す。トレイメニューの
+「診断情報をコピー」で、OS が認識しているサービス一覧を確認できる。
+
 ## 既知の制約
 
 - **BLE アドレスとクラシック Bluetooth アドレスが一致しない。**
