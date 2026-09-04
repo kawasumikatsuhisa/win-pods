@@ -27,7 +27,8 @@ Apple が AirPods の状態を BLE のアドバタイズメントで平文ブロ
 ## 動作環境
 
 - Windows 10 バージョン 1809 (build 17763) 以降
-- .NET 8 デスクトップランタイム
+- 実行: .NET 8 以降のデスクトップランタイム
+- ビルド: .NET SDK 8.0.100 以降 (9 / 10 でも可。`global.json` は下限のみ指定している)
 - Bluetooth LE に対応したアダプタ
 - AirPods が **Windows 側でペアリング済み** であること
   (ペアリング自体は Windows の設定アプリで行う)

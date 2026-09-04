@@ -12,6 +12,8 @@
     <!-- 単一 exe 配布を想定 (dotnet publish -c Release -r win-x64) -->
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <SelfContained>false</SelfContained>
+    <!-- .NET 8 デスクトップランタイムが無くても、より新しいランタイムで動かせるようにする -->
+    <RollForward>Major</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
