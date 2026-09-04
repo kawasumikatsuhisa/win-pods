@@ -6,7 +6,6 @@
     <SupportedOSPlatformVersion>$(WinPodsSupportedOSPlatformVersion)</SupportedOSPlatformVersion>
     <RootNamespace>WinPods.Windows</RootNamespace>
     <AssemblyName>WinPods.Windows</AssemblyName>
-    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

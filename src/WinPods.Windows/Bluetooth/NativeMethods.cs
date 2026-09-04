@@ -6,11 +6,18 @@ namespace WinPods.Windows.Bluetooth;
 /// bthprops.cpl (Bluetooth API) の P/Invoke 定義。
 /// </summary>
 /// <remarks>
+/// <para>
 /// クラシック Bluetooth のオーディオプロファイル (A2DP / HFP) を能動的に
 /// 接続・切断する公開 WinRT API は存在しないため、Win32 の
 /// <c>BluetoothSetServiceState</c> を使う。
+/// </para>
+/// <para>
+/// <c>LibraryImport</c> (ソースジェネレータ) ではなく <c>DllImport</c> を使っているのは、
+/// 前者が <c>AllowUnsafeBlocks</c> を要求するのと、<c>BLUETOOTH_DEVICE_INFO</c> が
+/// 固定長文字列を含む非 blittable 構造体でどのみち従来のマーシャリングが必要なため。
+/// </para>
 /// </remarks>
-internal static partial class NativeMethods
+internal static class NativeMethods
 {
     private const string BluetoothApis = "bthprops.cpl";
 
@@ -67,18 +74,18 @@ internal static partial class NativeMethods
         internal string szName;
     }
 
-    [LibraryImport(BluetoothApis, SetLastError = true)]
-    internal static partial IntPtr BluetoothFindFirstRadio(
+    [DllImport(BluetoothApis, SetLastError = true)]
+    internal static extern IntPtr BluetoothFindFirstRadio(
         ref BLUETOOTH_FIND_RADIO_PARAMS pbtfrp,
         out IntPtr phRadio);
 
-    [LibraryImport(BluetoothApis, SetLastError = true)]
+    [DllImport(BluetoothApis, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool BluetoothFindNextRadio(IntPtr hFind, out IntPtr phRadio);
+    internal static extern bool BluetoothFindNextRadio(IntPtr hFind, out IntPtr phRadio);
 
-    [LibraryImport(BluetoothApis, SetLastError = true)]
+    [DllImport(BluetoothApis, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool BluetoothFindRadioClose(IntPtr hFind);
+    internal static extern bool BluetoothFindRadioClose(IntPtr hFind);
 
     /// <summary>アドレスを設定した構造体を渡すと、残りのフィールドを埋めて返す。</summary>
     [DllImport(BluetoothApis, SetLastError = true, CharSet = CharSet.Unicode)]
@@ -91,7 +98,7 @@ internal static partial class NativeMethods
         ref Guid pGuidService,
         uint dwServiceFlags);
 
-    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool CloseHandle(IntPtr hObject);
+    internal static extern bool CloseHandle(IntPtr hObject);
 }
