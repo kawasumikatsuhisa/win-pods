@@ -14,8 +14,8 @@ namespace WinPods.Windows.Bluetooth;
 /// プロファイル単位で実行する。対象デバイスはペアリング済みである必要がある。
 /// </para>
 /// <para>
-/// <b>未検証</b>: 実機 (Windows + AirPods) での動作確認はこれから。
-/// 特に「A2DP だけ接続して HFP は繋がない」ときの挙動は要確認。
+/// 失敗したときは原因の切り分けができるよう、Win32 のエラーコードを
+/// <see cref="AudioProfileOperationResult.Detail"/> に載せて返す。
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("windows")]
@@ -31,24 +31,31 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
     ];
 
     /// <inheritdoc />
-    public Task<bool> ConnectAsync(ulong deviceAddress, CancellationToken cancellationToken = default) =>
+    public Task<AudioProfileOperationResult> ConnectAsync(
+        ulong deviceAddress,
+        CancellationToken cancellationToken = default) =>
         Task.Run(() => SetServiceState(deviceAddress, enable: true), cancellationToken);
 
     /// <inheritdoc />
-    public Task<bool> DisconnectAsync(ulong deviceAddress, CancellationToken cancellationToken = default) =>
+    public Task<AudioProfileOperationResult> DisconnectAsync(
+        ulong deviceAddress,
+        CancellationToken cancellationToken = default) =>
         Task.Run(() => SetServiceState(deviceAddress, enable: false), cancellationToken);
 
     /// <inheritdoc />
-    public Task<bool> IsConnectedAsync(ulong deviceAddress, CancellationToken cancellationToken = default) =>
+    public Task<bool?> IsConnectedAsync(
+        ulong deviceAddress,
+        CancellationToken cancellationToken = default) =>
         Task.Run(
             () =>
             {
-                bool connected = false;
+                bool? connected = null;
 
                 ForEachRadio(radio =>
                 {
-                    if (!TryGetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info))
+                    if (GetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info) != ERROR_SUCCESS)
                     {
+                        // このラジオでは見つからなかっただけかもしれないので次を試す。
                         return false;
                     }
 
@@ -60,26 +67,41 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
             },
             cancellationToken);
 
-    private bool SetServiceState(ulong deviceAddress, bool enable)
+    private AudioProfileOperationResult SetServiceState(ulong deviceAddress, bool enable)
     {
+        var failures = new List<string>();
+        bool deviceFound = false;
         bool anySucceeded = false;
+        uint lastLookupError = ERROR_NOT_FOUND;
+        bool anyRadio = false;
 
         ForEachRadio(radio =>
         {
-            if (!TryGetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info))
+            anyRadio = true;
+
+            uint lookupError = GetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info);
+
+            if (lookupError != ERROR_SUCCESS)
             {
+                lastLookupError = lookupError;
                 return false;
             }
 
+            deviceFound = true;
             uint flags = enable ? BLUETOOTH_SERVICE_ENABLE : BLUETOOTH_SERVICE_DISABLE;
 
             foreach (Guid serviceClass in ServiceClasses)
             {
                 Guid service = serviceClass;
+                uint result = BluetoothSetServiceState(radio, ref info, ref service, flags);
 
-                if (BluetoothSetServiceState(radio, ref info, ref service, flags) == ERROR_SUCCESS)
+                if (result == ERROR_SUCCESS)
                 {
                     anySucceeded = true;
+                }
+                else
+                {
+                    failures.Add($"{DescribeService(serviceClass)} {DescribeError(result)}");
                 }
             }
 
@@ -87,10 +109,23 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
             return true;
         });
 
-        return anySucceeded;
+        if (!anyRadio)
+        {
+            return AudioProfileOperationResult.Failure("Bluetooth アダプタが見つかりません");
+        }
+
+        if (!deviceFound)
+        {
+            return AudioProfileOperationResult.Failure(
+                $"デバイスが見つかりません {DescribeError(lastLookupError)}");
+        }
+
+        return anySucceeded
+            ? AudioProfileOperationResult.Success()
+            : AudioProfileOperationResult.Failure(string.Join(" / ", failures));
     }
 
-    private static bool TryGetDeviceInfo(IntPtr radio, ulong deviceAddress, out BLUETOOTH_DEVICE_INFO info)
+    private static uint GetDeviceInfo(IntPtr radio, ulong deviceAddress, out BLUETOOTH_DEVICE_INFO info)
     {
         info = new BLUETOOTH_DEVICE_INFO
         {
@@ -99,7 +134,42 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
             szName = string.Empty,
         };
 
-        return BluetoothGetDeviceInfo(radio, ref info) == ERROR_SUCCESS;
+        return BluetoothGetDeviceInfo(radio, ref info);
+    }
+
+    private static string DescribeService(Guid serviceClass)
+    {
+        if (serviceClass == AudioSinkServiceClass)
+        {
+            return "A2DP";
+        }
+
+        if (serviceClass == HandsFreeServiceClass)
+        {
+            return "HFP";
+        }
+
+        return serviceClass == HeadsetServiceClass ? "HSP" : serviceClass.ToString();
+    }
+
+    /// <summary>Win32 のエラーコードを、原因の切り分けに使える文字列にする。</summary>
+    private static string DescribeError(uint code)
+    {
+        string name = code switch
+        {
+            0 => "ERROR_SUCCESS",
+            5 => "ERROR_ACCESS_DENIED",
+            87 => "ERROR_INVALID_PARAMETER",
+            258 => "WAIT_TIMEOUT",
+            1167 => "ERROR_DEVICE_NOT_CONNECTED",
+            1168 => "ERROR_NOT_FOUND",
+            1219 => "ERROR_SESSION_CREDENTIAL_CONFLICT",
+            1223 => "ERROR_CANCELLED",
+            1359 => "ERROR_INTERNAL_ERROR",
+            _ => "Win32",
+        };
+
+        return $"{name}({code})";
     }
 
     /// <summary>

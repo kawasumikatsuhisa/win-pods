@@ -21,7 +21,8 @@ internal static class NativeMethods
 {
     private const string BluetoothApis = "bthprops.cpl";
 
-    internal const int ERROR_SUCCESS = 0;
+    internal const uint ERROR_SUCCESS = 0;
+    internal const uint ERROR_NOT_FOUND = 1168;
 
     internal const uint BLUETOOTH_SERVICE_DISABLE = 0x00;
     internal const uint BLUETOOTH_SERVICE_ENABLE = 0x01;

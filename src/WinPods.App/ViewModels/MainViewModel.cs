@@ -202,22 +202,30 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            bool requested = shouldConnect
+            AudioProfileOperationResult result = shouldConnect
                 ? await _connector.ConnectAsync(_targetDevice.Address).ConfigureAwait(true)
                 : await _connector.DisconnectAsync(_targetDevice.Address).ConfigureAwait(true);
 
-            if (!requested)
+            if (!result.Succeeded)
             {
-                StatusText = "操作に失敗しました";
+                // 原因を切り分けられるよう、OS が返したエラーをそのまま見せる。
+                StatusText = $"操作に失敗しました: {result.Detail}";
                 return;
             }
 
             // 要求が通っても実際に繋がる / 切れるまでには間があるので、
             // 楽観的にフラグを反転させず、実際の状態を確認してから反映する。
-            bool actual = await WaitForConnectionStateAsync(shouldConnect).ConfigureAwait(true);
-            ApplyConnectionState(actual);
+            bool? actual = await WaitForConnectionStateAsync(shouldConnect).ConfigureAwait(true);
 
-            if (actual != shouldConnect)
+            if (actual is not bool state)
+            {
+                StatusText = "接続状態を確認できませんでした";
+                return;
+            }
+
+            ApplyConnectionState(state);
+
+            if (state != shouldConnect)
             {
                 StatusText = shouldConnect ? "接続できませんでした" : "切断できませんでした";
             }
@@ -236,12 +244,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void Exit() => Application.Current.Shutdown();
 
-    /// <summary>期待した接続状態になるまで、タイムアウトまで問い合わせ続ける。</summary>
-    private async Task<bool> WaitForConnectionStateAsync(bool expected)
+    /// <summary>
+    /// 期待した接続状態になるまで、タイムアウトまで問い合わせ続ける。
+    /// 判定できなかった場合は null を返す。
+    /// </summary>
+    private async Task<bool?> WaitForConnectionStateAsync(bool expected)
     {
         ulong address = _targetDevice!.Address;
         DateTime deadline = DateTime.UtcNow + ConnectionSettleTimeout;
-        bool connected;
+        bool? connected;
 
         do
         {
@@ -273,11 +284,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            bool connected = await _connector.IsConnectedAsync(_targetDevice.Address).ConfigureAwait(true);
+            bool? connected = await _connector.IsConnectedAsync(_targetDevice.Address).ConfigureAwait(true);
 
-            if (connected != IsConnected)
+            // 判定できなかったときは表示を変えない (未接続と区別する)。
+            if (connected is bool state && state != IsConnected)
             {
-                ApplyConnectionState(connected);
+                ApplyConnectionState(state);
             }
         }
         catch
