@@ -60,11 +60,15 @@ public sealed class TrayIconHost : IDisposable
         var refresh = new MenuItem { Header = "状態を更新" };
         refresh.SetBinding(MenuItem.CommandProperty, new System.Windows.Data.Binding(nameof(MainViewModel.RefreshCommand)));
 
+        var diagnostics = new MenuItem { Header = "診断情報をコピー" };
+        diagnostics.SetBinding(MenuItem.CommandProperty, new System.Windows.Data.Binding(nameof(MainViewModel.CopyDiagnosticsCommand)));
+
         var exit = new MenuItem { Header = "終了" };
         exit.SetBinding(MenuItem.CommandProperty, new System.Windows.Data.Binding(nameof(MainViewModel.ExitCommand)));
 
         menu.Items.Add(toggle);
         menu.Items.Add(refresh);
+        menu.Items.Add(diagnostics);
         menu.Items.Add(new Separator());
         menu.Items.Add(exit);
 

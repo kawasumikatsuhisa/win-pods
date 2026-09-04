@@ -22,6 +22,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly AirPodsMonitor _monitor;
     private readonly IAudioProfileConnector _connector;
     private readonly IPairedDeviceProvider _pairedDeviceProvider;
+    private readonly IBluetoothDiagnostics _diagnostics;
     private readonly DispatcherTimer _connectionPollTimer;
 
     private PairedDevice? _targetDevice;
@@ -45,11 +46,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel(
         AirPodsMonitor monitor,
         IAudioProfileConnector connector,
-        IPairedDeviceProvider pairedDeviceProvider)
+        IPairedDeviceProvider pairedDeviceProvider,
+        IBluetoothDiagnostics diagnostics)
     {
         _monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));
         _connector = connector ?? throw new ArgumentNullException(nameof(connector));
         _pairedDeviceProvider = pairedDeviceProvider ?? throw new ArgumentNullException(nameof(pairedDeviceProvider));
+        _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
 
         _monitor.StatusUpdated += OnStatusUpdated;
 
@@ -237,6 +240,45 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// 接続まわりの診断情報をクリップボードにコピーする。
+    /// 接続状態は変更しない。
+    /// </summary>
+    [RelayCommand]
+    private async Task CopyDiagnosticsAsync()
+    {
+        string lastStatus = StatusText;
+
+        if (_targetDevice is null)
+        {
+            await RefreshAsync().ConfigureAwait(true);
+        }
+
+        if (_targetDevice is null)
+        {
+            StatusText = "対象デバイスが無いため診断できません";
+            return;
+        }
+
+        try
+        {
+            string report = await _diagnostics
+                .CreateReportAsync(_targetDevice.Address, _targetDevice.Name)
+                .ConfigureAwait(true);
+
+            report = $"直近のステータス: {lastStatus}{Environment.NewLine}{report}";
+
+            // Clipboard は他プロセスが掴んでいると失敗するので、リトライ付きで書き込む。
+            Clipboard.SetDataObject(report, copy: true);
+
+            StatusText = "診断情報をクリップボードにコピーしました";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"診断情報のコピーに失敗しました: {ex.Message}";
         }
     }
 

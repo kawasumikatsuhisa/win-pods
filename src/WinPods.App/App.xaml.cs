@@ -57,7 +57,8 @@ public partial class App : Application
         _viewModel = new MainViewModel(
             _monitor,
             new BluetoothServiceStateConnector(),
-            new WindowsPairedDeviceProvider());
+            new WindowsPairedDeviceProvider(),
+            new BluetoothDiagnostics());
 
         _trayIconHost = new TrayIconHost(_viewModel, _monitor);
 

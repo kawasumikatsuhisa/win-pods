@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using WinPods.Core.Abstractions;
 using static WinPods.Windows.Bluetooth.NativeMethods;
@@ -51,9 +50,9 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
             {
                 bool? connected = null;
 
-                ForEachRadio(radio =>
+                BluetoothRadios.ForEach(radio =>
                 {
-                    if (GetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info) != ERROR_SUCCESS)
+                    if (BluetoothRadios.GetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info) != ERROR_SUCCESS)
                     {
                         // このラジオでは見つからなかっただけかもしれないので次を試す。
                         return false;
@@ -73,13 +72,10 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
         bool deviceFound = false;
         bool anySucceeded = false;
         uint lastLookupError = ERROR_NOT_FOUND;
-        bool anyRadio = false;
 
-        ForEachRadio(radio =>
+        int radioCount = BluetoothRadios.ForEach(radio =>
         {
-            anyRadio = true;
-
-            uint lookupError = GetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info);
+            uint lookupError = BluetoothRadios.GetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info);
 
             if (lookupError != ERROR_SUCCESS)
             {
@@ -101,7 +97,7 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
                 }
                 else
                 {
-                    failures.Add($"{DescribeService(serviceClass)} {DescribeError(result)}");
+                    failures.Add($"{DescribeService(serviceClass)} {BluetoothRadios.DescribeError(result)}");
                 }
             }
 
@@ -109,7 +105,7 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
             return true;
         });
 
-        if (!anyRadio)
+        if (radioCount == 0)
         {
             return AudioProfileOperationResult.Failure("Bluetooth アダプタが見つかりません");
         }
@@ -117,24 +113,12 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
         if (!deviceFound)
         {
             return AudioProfileOperationResult.Failure(
-                $"デバイスが見つかりません {DescribeError(lastLookupError)}");
+                $"デバイスが見つかりません {BluetoothRadios.DescribeError(lastLookupError)}");
         }
 
         return anySucceeded
             ? AudioProfileOperationResult.Success()
             : AudioProfileOperationResult.Failure(string.Join(" / ", failures));
-    }
-
-    private static uint GetDeviceInfo(IntPtr radio, ulong deviceAddress, out BLUETOOTH_DEVICE_INFO info)
-    {
-        info = new BLUETOOTH_DEVICE_INFO
-        {
-            dwSize = (uint)Marshal.SizeOf<BLUETOOTH_DEVICE_INFO>(),
-            Address = deviceAddress,
-            szName = string.Empty,
-        };
-
-        return BluetoothGetDeviceInfo(radio, ref info);
     }
 
     private static string DescribeService(Guid serviceClass)
@@ -150,67 +134,5 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
         }
 
         return serviceClass == HeadsetServiceClass ? "HSP" : serviceClass.ToString();
-    }
-
-    /// <summary>Win32 のエラーコードを、原因の切り分けに使える文字列にする。</summary>
-    private static string DescribeError(uint code)
-    {
-        string name = code switch
-        {
-            0 => "ERROR_SUCCESS",
-            5 => "ERROR_ACCESS_DENIED",
-            87 => "ERROR_INVALID_PARAMETER",
-            258 => "WAIT_TIMEOUT",
-            1167 => "ERROR_DEVICE_NOT_CONNECTED",
-            1168 => "ERROR_NOT_FOUND",
-            1219 => "ERROR_SESSION_CREDENTIAL_CONFLICT",
-            1223 => "ERROR_CANCELLED",
-            1359 => "ERROR_INTERNAL_ERROR",
-            _ => "Win32",
-        };
-
-        return $"{name}({code})";
-    }
-
-    /// <summary>
-    /// すべての Bluetooth ラジオを順に処理する。
-    /// <paramref name="action"/> が true を返した時点で探索を打ち切る。
-    /// </summary>
-    private static void ForEachRadio(Func<IntPtr, bool> action)
-    {
-        var findParams = new BLUETOOTH_FIND_RADIO_PARAMS
-        {
-            dwSize = (uint)Marshal.SizeOf<BLUETOOTH_FIND_RADIO_PARAMS>(),
-        };
-
-        IntPtr find = BluetoothFindFirstRadio(ref findParams, out IntPtr radio);
-
-        if (find == IntPtr.Zero)
-        {
-            return;
-        }
-
-        try
-        {
-            do
-            {
-                try
-                {
-                    if (action(radio))
-                    {
-                        return;
-                    }
-                }
-                finally
-                {
-                    CloseHandle(radio);
-                }
-            }
-            while (BluetoothFindNextRadio(find, out radio));
-        }
-        finally
-        {
-            BluetoothFindRadioClose(find);
-        }
     }
 }

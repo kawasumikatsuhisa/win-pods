@@ -23,6 +23,7 @@ internal static class NativeMethods
 
     internal const uint ERROR_SUCCESS = 0;
     internal const uint ERROR_NOT_FOUND = 1168;
+    internal const uint ERROR_MORE_DATA = 234;
 
     internal const uint BLUETOOTH_SERVICE_DISABLE = 0x00;
     internal const uint BLUETOOTH_SERVICE_ENABLE = 0x01;
@@ -98,6 +99,18 @@ internal static class NativeMethods
         ref BLUETOOTH_DEVICE_INFO pbtdi,
         ref Guid pGuidService,
         uint dwServiceFlags);
+
+    /// <summary>
+    /// Windows がそのデバイスに対して認識しているサービスを列挙する。
+    /// <paramref name="pGuidServices"/> に null を渡すと必要な個数だけが返る
+    /// (戻り値は ERROR_MORE_DATA)。
+    /// </summary>
+    [DllImport(BluetoothApis, SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern uint BluetoothEnumerateInstalledServices(
+        IntPtr hRadio,
+        ref BLUETOOTH_DEVICE_INFO pbtdi,
+        ref uint pcServiceInout,
+        [Out] Guid[]? pGuidServices);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
