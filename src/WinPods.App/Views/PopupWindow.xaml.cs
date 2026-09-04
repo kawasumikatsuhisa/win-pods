@@ -8,6 +8,8 @@ namespace WinPods.App.Views;
 /// </summary>
 public partial class PopupWindow : Window
 {
+    private const double ScreenEdgeMargin = 12;
+
     public PopupWindow()
     {
         InitializeComponent();
@@ -16,17 +18,28 @@ public partial class PopupWindow : Window
     /// <summary>画面の作業領域の右下 (通知領域の上あたり) に表示する。</summary>
     public void ShowNearTray()
     {
-        // 実測サイズを得るために一度レイアウトを確定させる。
-        Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        // Show する前は ActualWidth / ActualHeight が確定しないため、
+        // いったん透明のまま表示してレイアウトを確定させてから位置を決める。
+        // (Show 前に Measure(無限大) を呼ぶとウィンドウ幅が内容に合わせて縮んでしまう)
+        if (!IsVisible)
+        {
+            Opacity = 0;
+            Show();
+        }
 
-        const double margin = 12;
+        UpdateLayout();
+        MoveToTrayCorner();
+
+        Opacity = 1;
+        Activate();
+    }
+
+    private void MoveToTrayCorner()
+    {
         Rect workArea = SystemParameters.WorkArea;
 
-        Left = workArea.Right - Width - margin;
-        Top = workArea.Bottom - (ActualHeight > 0 ? ActualHeight : DesiredSize.Height) - margin;
-
-        Show();
-        Activate();
+        Left = workArea.Right - ActualWidth - ScreenEdgeMargin;
+        Top = workArea.Bottom - ActualHeight - ScreenEdgeMargin;
     }
 
     protected override void OnDeactivated(EventArgs e)

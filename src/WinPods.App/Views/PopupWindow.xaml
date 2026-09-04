@@ -9,21 +9,77 @@
         Background="Transparent"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
-        Topmost="True">
+        Topmost="True"
+        FontFamily="Segoe UI"
+        TextOptions.TextFormattingMode="Ideal"
+        UseLayoutRounding="True">
 
     <Window.Resources>
         <Style x:Key="BatteryValueStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
-            <Setter Property="FontSize" Value="20" />
+            <Setter Property="FontSize" Value="22" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="TextAlignment" Value="Center" />
         </Style>
+
         <Style x:Key="BatteryLabelStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+
+        <Style x:Key="ChargingLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource BatteryLabelStyle}">
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
             <Setter Property="Margin" Value="0,2,0,0" />
         </Style>
+
+        <!-- Windows 11 風のフラットなボタン。未接続のときはアクセント色 (主要アクション) にする -->
+        <Style x:Key="PopupButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+            <Setter Property="Background" Value="{StaticResource ButtonBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource ButtonBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="12,9" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.85" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.7" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsConnected}" Value="False">
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <BooleanToVisibilityConverter x:Key="BooleanToVisibility" />
     </Window.Resources>
 
@@ -31,7 +87,7 @@
             BorderBrush="{StaticResource PopupBorderBrush}"
             BorderThickness="1"
             CornerRadius="8"
-            Padding="16">
+            Padding="18,16">
         <StackPanel>
             <TextBlock Text="{Binding DeviceName}"
                        Foreground="{StaticResource PrimaryTextBrush}"
@@ -41,12 +97,15 @@
             <TextBlock Text="{Binding StatusText}"
                        Foreground="{StaticResource SecondaryTextBrush}"
                        FontSize="12"
-                       Margin="0,2,0,12" />
+                       Margin="0,3,0,0"
+                       TextTrimming="CharacterEllipsis" />
 
-            <Grid>
+            <Grid Margin="0,18,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
@@ -55,35 +114,32 @@
                     <TextBlock Text="{Binding LeftBatteryText}" Style="{StaticResource BatteryValueStyle}" />
                     <TextBlock Text="左" Style="{StaticResource BatteryLabelStyle}" />
                     <TextBlock Text="充電中"
-                               Style="{StaticResource BatteryLabelStyle}"
-                               Foreground="{StaticResource AccentBrush}"
+                               Style="{StaticResource ChargingLabelStyle}"
                                Visibility="{Binding IsLeftCharging, Converter={StaticResource BooleanToVisibility}}" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="1">
+                <StackPanel Grid.Column="2">
                     <TextBlock Text="{Binding RightBatteryText}" Style="{StaticResource BatteryValueStyle}" />
                     <TextBlock Text="右" Style="{StaticResource BatteryLabelStyle}" />
                     <TextBlock Text="充電中"
-                               Style="{StaticResource BatteryLabelStyle}"
-                               Foreground="{StaticResource AccentBrush}"
+                               Style="{StaticResource ChargingLabelStyle}"
                                Visibility="{Binding IsRightCharging, Converter={StaticResource BooleanToVisibility}}" />
                 </StackPanel>
 
-                <StackPanel Grid.Column="2"
+                <StackPanel Grid.Column="4"
                             Visibility="{Binding HasCase, Converter={StaticResource BooleanToVisibility}}">
                     <TextBlock Text="{Binding CaseBatteryText}" Style="{StaticResource BatteryValueStyle}" />
                     <TextBlock Text="ケース" Style="{StaticResource BatteryLabelStyle}" />
                     <TextBlock Text="充電中"
-                               Style="{StaticResource BatteryLabelStyle}"
-                               Foreground="{StaticResource AccentBrush}"
+                               Style="{StaticResource ChargingLabelStyle}"
                                Visibility="{Binding IsCaseCharging, Converter={StaticResource BooleanToVisibility}}" />
                 </StackPanel>
             </Grid>
 
             <Button Content="{Binding ConnectionActionText}"
                     Command="{Binding ToggleConnectionCommand}"
-                    Margin="0,16,0,0"
-                    Padding="0,8"
+                    Style="{StaticResource PopupButtonStyle}"
+                    Margin="0,18,0,0"
                     HorizontalAlignment="Stretch" />
         </StackPanel>
     </Border>

@@ -10,6 +10,9 @@
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#FFFFFFFF" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="#B3FFFFFF" />
             <SolidColorBrush x:Key="AccentBrush" Color="#FF2F6FED" />
+            <SolidColorBrush x:Key="AccentBorderBrush" Color="#FF2557C4" />
+            <SolidColorBrush x:Key="ButtonBackgroundBrush" Color="#FF3B3B3B" />
+            <SolidColorBrush x:Key="ButtonBorderBrush" Color="#26FFFFFF" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
