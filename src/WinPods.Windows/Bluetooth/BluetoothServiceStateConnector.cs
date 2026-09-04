@@ -16,10 +16,12 @@ namespace WinPods.Windows.Bluetooth;
 /// 公開 WinRT API は存在しないため、Win32 の <c>BluetoothSetServiceState</c> を使う。
 /// </para>
 /// <para>
-/// ただし Windows 11 の新しいビルドでは、正しいサービス GUID を渡しても
-/// ERROR_INVALID_PARAMETER(87) を返す環境が確認されている。そのため単発で諦めず、
-/// 既知の手法を順に試して最初に実際に接続できたものを採用する。
-/// どの手法がどう失敗したかは <see cref="AudioProfileOperationResult.Detail"/> に残す。
+/// <b>この API の危険性</b>: <c>BLUETOOTH_SERVICE_DISABLE</c> は一時的な切断ではなく、
+/// そのデバイスからオーディオプロファイルの<b>登録を外す</b>操作である。通常は
+/// <c>BLUETOOTH_SERVICE_ENABLE</c> で戻せるが、ENABLE が ERROR_INVALID_PARAMETER(87)
+/// を返す環境 (Windows 11 build 26200 で確認) では戻せず、Windows がそのデバイスを
+/// オーディオ機器として扱えなくなり再ペアリングが必要になる。
+/// そのため切断は、ENABLE が成功する = 元に戻せると確認できた場合しか実行しない。
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("windows10.0.17763.0")]
@@ -29,6 +31,11 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
     private static readonly TimeSpan LinkSettleTimeout = TimeSpan.FromSeconds(3);
 
     private static readonly TimeSpan LinkSettlePollInterval = TimeSpan.FromMilliseconds(400);
+
+    /// <summary>プロファイルの状態変更の結果。</summary>
+    /// <param name="AllSucceeded">対象プロファイルすべてで ERROR_SUCCESS だったか。</param>
+    /// <param name="Detail">プロファイル別の結果 (UI 表示・切り分け用)。</param>
+    private readonly record struct ServiceStateOutcome(bool AllSucceeded, string Detail);
 
     /// <summary>
     /// 接続・切断の対象にするプロファイル。既定では A2DP と HFP の両方。
@@ -40,6 +47,10 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
     ];
 
     /// <inheritdoc />
+    /// <remarks>
+    /// ENABLE は登録を追加する方向の操作なので、失敗しても状態を壊さない。
+    /// 効く手法が環境によって違うため、順に試して最初に実際に接続できたものを採る。
+    /// </remarks>
     public async Task<AudioProfileOperationResult> ConnectAsync(
         ulong deviceAddress,
         CancellationToken cancellationToken = default)
@@ -47,8 +58,9 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
         var attempts = new List<string>();
 
         // 1) ラジオハンドルを指定してプロファイルを有効化する (標準的な方法)
-        attempts.Add("radio " + await Task.Run(
-            () => SetServiceStatePerRadio(deviceAddress, enable: true), cancellationToken).ConfigureAwait(false));
+        ServiceStateOutcome perRadio = await Task.Run(
+            () => SetServiceStatePerRadio(deviceAddress, enable: true), cancellationToken).ConfigureAwait(false);
+        attempts.Add($"radio {perRadio.Detail}");
 
         if (await WaitForConnectionAsync(deviceAddress, expected: true, cancellationToken).ConfigureAwait(false))
         {
@@ -56,8 +68,9 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
         }
 
         // 2) hRadio に NULL を渡す (すべてのローカルラジオを対象にする呼び方)
-        attempts.Add("null-radio " + await Task.Run(
-            () => SetServiceStateOnAllRadios(deviceAddress, enable: true), cancellationToken).ConfigureAwait(false));
+        ServiceStateOutcome allRadios = await Task.Run(
+            () => SetServiceStateOnAllRadios(deviceAddress, enable: true), cancellationToken).ConfigureAwait(false);
+        attempts.Add($"null-radio {allRadios.Detail}");
 
         if (await WaitForConnectionAsync(deviceAddress, expected: true, cancellationToken).ConfigureAwait(false))
         {
@@ -65,7 +78,7 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
         }
 
         // 3) SDP 問い合わせで ACL リンクを張らせ、オーディオドライバの自動接続を促す
-        attempts.Add("sdp " + await ForceLinkAsync(deviceAddress, cancellationToken).ConfigureAwait(false));
+        attempts.Add($"sdp {await ForceLinkAsync(deviceAddress, cancellationToken).ConfigureAwait(false)}");
 
         if (await WaitForConnectionAsync(deviceAddress, expected: true, cancellationToken).ConfigureAwait(false))
         {
@@ -76,29 +89,31 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// 元に戻せることを確認できない限り実行しない。クラスのコメントを参照。
+    /// </remarks>
     public async Task<AudioProfileOperationResult> DisconnectAsync(
         ulong deviceAddress,
         CancellationToken cancellationToken = default)
     {
-        var attempts = new List<string>();
+        // 先に ENABLE を試し、この環境でプロファイルを再登録できるかを確かめる。
+        // ENABLE は追加方向の操作なので、ここで実行しても壊れない。
+        ServiceStateOutcome probe = await Task.Run(
+            () => SetServiceStatePerRadio(deviceAddress, enable: true), cancellationToken).ConfigureAwait(false);
 
-        attempts.Add("radio " + await Task.Run(
-            () => SetServiceStatePerRadio(deviceAddress, enable: false), cancellationToken).ConfigureAwait(false));
-
-        if (await WaitForConnectionAsync(deviceAddress, expected: false, cancellationToken).ConfigureAwait(false))
+        if (!probe.AllSucceeded)
         {
-            return AudioProfileOperationResult.Success();
+            return AudioProfileOperationResult.Failure(
+                "この環境では切断できません。オーディオプロファイルを元に戻せず、" +
+                $"再ペアリングが必要になるためです ({probe.Detail})");
         }
 
-        attempts.Add("null-radio " + await Task.Run(
-            () => SetServiceStateOnAllRadios(deviceAddress, enable: false), cancellationToken).ConfigureAwait(false));
+        ServiceStateOutcome disable = await Task.Run(
+            () => SetServiceStatePerRadio(deviceAddress, enable: false), cancellationToken).ConfigureAwait(false);
 
-        if (await WaitForConnectionAsync(deviceAddress, expected: false, cancellationToken).ConfigureAwait(false))
-        {
-            return AudioProfileOperationResult.Success();
-        }
-
-        return AudioProfileOperationResult.Failure(string.Join(" / ", attempts));
+        return await WaitForConnectionAsync(deviceAddress, expected: false, cancellationToken).ConfigureAwait(false)
+            ? AudioProfileOperationResult.Success()
+            : AudioProfileOperationResult.Failure(disable.Detail);
     }
 
     /// <inheritdoc />
@@ -126,10 +141,10 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
             },
             cancellationToken);
 
-    /// <summary>ラジオを列挙し、デバイスが属するラジオでプロファイルを有効 / 無効にする。</summary>
-    private string SetServiceStatePerRadio(ulong deviceAddress, bool enable)
+    /// <summary>ラジオを列挙し、デバイスが属するラジオでプロファイルの状態を変更する。</summary>
+    private ServiceStateOutcome SetServiceStatePerRadio(ulong deviceAddress, bool enable)
     {
-        var results = new List<string>();
+        ServiceStateOutcome outcome = default;
         bool deviceFound = false;
         uint lastLookupError = ERROR_NOT_FOUND;
 
@@ -144,46 +159,50 @@ public sealed class BluetoothServiceStateConnector : IAudioProfileConnector
             }
 
             deviceFound = true;
-            results.AddRange(ApplyServiceStates(radio, ref info, enable));
+            outcome = ApplyServiceStates(radio, ref info, enable);
             return true;
         });
 
         if (radioCount == 0)
         {
-            return "アダプタなし";
+            return new ServiceStateOutcome(false, "アダプタなし");
         }
 
         return deviceFound
-            ? string.Join(", ", results)
-            : $"デバイス未検出 {BluetoothRadios.DescribeError(lastLookupError)}";
+            ? outcome
+            : new ServiceStateOutcome(false, $"デバイス未検出 {BluetoothRadios.DescribeError(lastLookupError)}");
     }
 
     /// <summary>hRadio に NULL を渡して、すべてのローカルラジオを対象に操作する。</summary>
-    private string SetServiceStateOnAllRadios(ulong deviceAddress, bool enable)
+    private ServiceStateOutcome SetServiceStateOnAllRadios(ulong deviceAddress, bool enable)
     {
         uint lookupError = BluetoothRadios.GetDeviceInfo(IntPtr.Zero, deviceAddress, out BLUETOOTH_DEVICE_INFO info);
 
-        if (lookupError != ERROR_SUCCESS)
-        {
-            return $"デバイス未検出 {BluetoothRadios.DescribeError(lookupError)}";
-        }
-
-        return string.Join(", ", ApplyServiceStates(IntPtr.Zero, ref info, enable));
+        return lookupError != ERROR_SUCCESS
+            ? new ServiceStateOutcome(false, $"デバイス未検出 {BluetoothRadios.DescribeError(lookupError)}")
+            : ApplyServiceStates(IntPtr.Zero, ref info, enable);
     }
 
-    private List<string> ApplyServiceStates(IntPtr radio, ref BLUETOOTH_DEVICE_INFO info, bool enable)
+    private ServiceStateOutcome ApplyServiceStates(IntPtr radio, ref BLUETOOTH_DEVICE_INFO info, bool enable)
     {
         uint flags = enable ? BLUETOOTH_SERVICE_ENABLE : BLUETOOTH_SERVICE_DISABLE;
-        var results = new List<string>(ServiceClasses.Count);
+        var details = new List<string>(ServiceClasses.Count);
+        bool allSucceeded = true;
 
         foreach (Guid serviceClass in ServiceClasses)
         {
             Guid service = serviceClass;
             uint result = BluetoothSetServiceState(radio, ref info, ref service, flags);
-            results.Add($"{DescribeService(serviceClass)} {BluetoothRadios.DescribeError(result)}");
+
+            if (result != ERROR_SUCCESS)
+            {
+                allSucceeded = false;
+            }
+
+            details.Add($"{DescribeService(serviceClass)} {BluetoothRadios.DescribeError(result)}");
         }
 
-        return results;
+        return new ServiceStateOutcome(allSucceeded, string.Join(", ", details));
     }
 
     /// <summary>

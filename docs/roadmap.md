@@ -20,7 +20,11 @@
 3. 充電フラグの bit0 / bit1 の対応が合っているか
 4. Lid Open Counter の bit3 が「開 = 0」で合っているか
 5. `BluetoothSetServiceState` で AirPods の接続・切断ができるか
-   (A2DP のみ / HFP のみ を指定したときの挙動も)
+   → **実測: できない環境がある。** Windows 11 build 26200 では ENABLE が
+   `ERROR_INVALID_PARAMETER(87)` を返す。GUID・アドレス・構造体レイアウトは
+   すべて正しく、インストール済みサービスにも `110b` / `111e` が含まれていた。
+   さらに DISABLE はプロファイルの登録自体を外してしまい、ENABLE で戻せない
+   環境では再ペアリングが必要になる。**代替の接続手段の調査が最優先課題。**
 
 ## v0.2
 

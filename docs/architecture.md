@@ -51,6 +51,21 @@ WPF からもそのまま呼べるため、WinUI 3 を選ぶ動機は薄い。
 - A2DP Sink: `{0000110B-0000-1000-8000-00805F9B34FB}`
 - Hands-Free: `{0000111E-0000-1000-8000-00805F9B34FB}`
 
+#### 危険: BLUETOOTH_SERVICE_DISABLE は「切断」ではない
+
+`BluetoothSetServiceState` に `BLUETOOTH_SERVICE_DISABLE` を渡す操作は、
+一時的な切断ではなく **そのデバイスからオーディオプロファイルの登録を外す**。
+`BluetoothEnumerateInstalledServices` の一覧から当該 GUID が消える。
+
+通常は `BLUETOOTH_SERVICE_ENABLE` で戻せるが、後述のとおり ENABLE が
+`ERROR_INVALID_PARAMETER(87)` を返す環境では**戻せない**。実際に
+Windows 11 build 26200 + AirPods Pro で、切断操作によって `110b` (A2DP Sink) と
+`111e` (HFP) が登録から消え、Windows が AirPods をオーディオ機器として
+扱えなくなる事象を発生させた。復旧にはデバイスの削除と再ペアリングが必要だった。
+
+このため切断処理は、**先に ENABLE を実行して成功することを確認できた場合のみ**
+DISABLE を実行する。ENABLE が失敗する環境では切断機能を提供しない。
+
 #### 実測: BluetoothSetServiceState が 87 を返す環境がある
 
 Windows 11 build 26200 + AirPods Pro で、`BluetoothSetServiceState` が

@@ -24,6 +24,13 @@ Apple が AirPods の状態を BLE のアドバタイズメントで平文ブロ
 
 確認すべき項目は [`docs/roadmap.md`](docs/roadmap.md) にまとめてある。
 
+> **警告**: Windows 11 build 26200 では `BluetoothSetServiceState` による接続が
+> `ERROR_INVALID_PARAMETER(87)` で失敗する。またこの API の切断操作は
+> オーディオプロファイルの登録自体を外すため、戻せない環境では
+> 再ペアリングが必要になる。現在は元に戻せることを確認できた場合しか
+> 切断を実行しないようにしてある。詳細は
+> [`docs/architecture.md`](docs/architecture.md) を参照。
+
 ## 動作環境
 
 - Windows 10 バージョン 1809 (build 17763) 以降
