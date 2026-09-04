@@ -80,7 +80,7 @@ public sealed class TrayIconHost : IDisposable
         }
 
         _autoHideTimer.Stop();
-        _popup.ShowNearTray();
+        ShowPopup();
     }
 
     /// <summary>ケースの蓋が開いたら、しばらくの間ポップアップを表示する。</summary>
@@ -88,7 +88,7 @@ public sealed class TrayIconHost : IDisposable
     {
         _popup.Dispatcher.BeginInvoke(() =>
         {
-            _popup.ShowNearTray();
+            ShowPopup();
             _autoHideTimer.Stop();
             _autoHideTimer.Start();
         });
@@ -103,6 +103,17 @@ public sealed class TrayIconHost : IDisposable
                 ? $"{_viewModel.DeviceName}\n左 {_viewModel.LeftBatteryText} / 右 {_viewModel.RightBatteryText} / ケース {_viewModel.CaseBatteryText}"
                 : $"{_viewModel.DeviceName}\n{_viewModel.RightBatteryText}";
         });
+    }
+
+    /// <summary>ポップアップを開く。開くたびに実際の接続状態を取り直す。</summary>
+    private void ShowPopup()
+    {
+        if (_viewModel.RefreshCommand.CanExecute(null))
+        {
+            _viewModel.RefreshCommand.Execute(null);
+        }
+
+        _popup.ShowNearTray();
     }
 
     private void OnAutoHideTick(object? sender, EventArgs e)

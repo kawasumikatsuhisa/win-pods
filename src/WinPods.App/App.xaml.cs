@@ -16,6 +16,7 @@ public partial class App : Application
 
     private Mutex? _singleInstanceMutex;
     private AirPodsMonitor? _monitor;
+    private MainViewModel? _viewModel;
     private TrayIconHost? _trayIconHost;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -53,22 +54,23 @@ public partial class App : Application
         var watcher = new BluetoothLeAirPodsWatcher();
         _monitor = new AirPodsMonitor(watcher);
 
-        var viewModel = new MainViewModel(
+        _viewModel = new MainViewModel(
             _monitor,
             new BluetoothServiceStateConnector(),
             new WindowsPairedDeviceProvider());
 
-        _trayIconHost = new TrayIconHost(viewModel, _monitor);
+        _trayIconHost = new TrayIconHost(_viewModel, _monitor);
 
         _monitor.Start();
 
         // 起動直後にペアリング済みデバイスと接続状態を読み込む。
-        viewModel.RefreshCommand.Execute(null);
+        _viewModel.RefreshCommand.Execute(null);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         _trayIconHost?.Dispose();
+        _viewModel?.Dispose();
         _monitor?.Dispose();
 
         if (_singleInstanceMutex is not null)

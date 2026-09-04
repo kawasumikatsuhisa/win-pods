@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinPods.App.Services;
@@ -8,13 +9,25 @@ using WinPods.Core.Models;
 namespace WinPods.App.ViewModels;
 
 /// <summary>トレイのポップアップに表示する状態。</summary>
-public sealed partial class MainViewModel : ObservableObject
+public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
+    /// <summary>接続状態を問い合わせる間隔。</summary>
+    private static readonly TimeSpan ConnectionPollInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>接続 / 切断を要求してから実際に状態が変わるのを待つ時間。</summary>
+    private static readonly TimeSpan ConnectionSettleTimeout = TimeSpan.FromSeconds(6);
+
+    private static readonly TimeSpan ConnectionSettlePollInterval = TimeSpan.FromMilliseconds(500);
+
     private readonly AirPodsMonitor _monitor;
     private readonly IAudioProfileConnector _connector;
     private readonly IPairedDeviceProvider _pairedDeviceProvider;
+    private readonly DispatcherTimer _connectionPollTimer;
 
     private PairedDevice? _targetDevice;
+    private bool _isPolling;
+    private bool _disposed;
+
     private string _deviceName = "AirPods を検出中…";
     private string _statusText = "スキャン中";
     private string _leftBatteryText = "--";
@@ -39,6 +52,12 @@ public sealed partial class MainViewModel : ObservableObject
         _pairedDeviceProvider = pairedDeviceProvider ?? throw new ArgumentNullException(nameof(pairedDeviceProvider));
 
         _monitor.StatusUpdated += OnStatusUpdated;
+
+        // 接続状態はこちらの操作以外でも変わる (iPhone に持っていかれる、
+        // Windows 側から切断される、など) ので、実際の状態を定期的に問い合わせる。
+        _connectionPollTimer = new DispatcherTimer { Interval = ConnectionPollInterval };
+        _connectionPollTimer.Tick += OnConnectionPollTick;
+        _connectionPollTimer.Start();
     }
 
     public string DeviceName
@@ -132,6 +151,12 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task RefreshAsync()
     {
+        // 接続 / 切断の処理中は、その結果で状態を更新するので割り込まない。
+        if (IsBusy)
+        {
+            return;
+        }
+
         try
         {
             IReadOnlyList<PairedDevice> devices =
@@ -143,13 +168,12 @@ public sealed partial class MainViewModel : ObservableObject
 
             if (_targetDevice is null)
             {
-                StatusText = "ペアリング済みのオーディオデバイスがありません";
                 IsConnected = false;
+                StatusText = "ペアリング済みのオーディオデバイスがありません";
                 return;
             }
 
-            IsConnected = _targetDevice.IsConnected;
-            StatusText = IsConnected ? "接続済み" : "未接続";
+            ApplyConnectionState(_targetDevice.IsConnected);
         }
         catch (Exception ex)
         {
@@ -157,7 +181,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>接続/ 切断を切り替える。</summary>
+    /// <summary>接続 / 切断を切り替える。</summary>
     [RelayCommand]
     private async Task ToggleConnectionAsync()
     {
@@ -171,23 +195,31 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
+        bool shouldConnect = !IsConnected;
+
         IsBusy = true;
-        StatusText = IsConnected ? "切断しています…" : "接続しています…";
+        StatusText = shouldConnect ? "接続しています…" : "切断しています…";
 
         try
         {
-            bool succeeded = IsConnected
-                ? await _connector.DisconnectAsync(_targetDevice.Address).ConfigureAwait(true)
-                : await _connector.ConnectAsync(_targetDevice.Address).ConfigureAwait(true);
+            bool requested = shouldConnect
+                ? await _connector.ConnectAsync(_targetDevice.Address).ConfigureAwait(true)
+                : await _connector.DisconnectAsync(_targetDevice.Address).ConfigureAwait(true);
 
-            if (succeeded)
-            {
-                IsConnected = !IsConnected;
-                StatusText = IsConnected ? "接続済み" : "未接続";
-            }
-            else
+            if (!requested)
             {
                 StatusText = "操作に失敗しました";
+                return;
+            }
+
+            // 要求が通っても実際に繋がる / 切れるまでには間があるので、
+            // 楽観的にフラグを反転させず、実際の状態を確認してから反映する。
+            bool actual = await WaitForConnectionStateAsync(shouldConnect).ConfigureAwait(true);
+            ApplyConnectionState(actual);
+
+            if (actual != shouldConnect)
+            {
+                StatusText = shouldConnect ? "接続できませんでした" : "切断できませんでした";
             }
         }
         catch (Exception ex)
@@ -203,6 +235,66 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>アプリを終了する。</summary>
     [RelayCommand]
     private void Exit() => Application.Current.Shutdown();
+
+    /// <summary>期待した接続状態になるまで、タイムアウトまで問い合わせ続ける。</summary>
+    private async Task<bool> WaitForConnectionStateAsync(bool expected)
+    {
+        ulong address = _targetDevice!.Address;
+        DateTime deadline = DateTime.UtcNow + ConnectionSettleTimeout;
+        bool connected;
+
+        do
+        {
+            connected = await _connector.IsConnectedAsync(address).ConfigureAwait(true);
+
+            if (connected == expected)
+            {
+                return connected;
+            }
+
+            await Task.Delay(ConnectionSettlePollInterval).ConfigureAwait(true);
+        }
+        while (DateTime.UtcNow < deadline);
+
+        return connected;
+    }
+
+    /// <summary>
+    /// 定期的に実際の接続状態を問い合わせ、こちらの操作以外での変化に追随する。
+    /// </summary>
+    private async void OnConnectionPollTick(object? sender, EventArgs e)
+    {
+        if (_isPolling || IsBusy || _targetDevice is null)
+        {
+            return;
+        }
+
+        _isPolling = true;
+
+        try
+        {
+            bool connected = await _connector.IsConnectedAsync(_targetDevice.Address).ConfigureAwait(true);
+
+            if (connected != IsConnected)
+            {
+                ApplyConnectionState(connected);
+            }
+        }
+        catch
+        {
+            // 一時的な問い合わせ失敗は次回の巡回に任せる。
+        }
+        finally
+        {
+            _isPolling = false;
+        }
+    }
+
+    private void ApplyConnectionState(bool connected)
+    {
+        IsConnected = connected;
+        StatusText = connected ? "接続済み" : "未接続";
+    }
 
     private void OnStatusUpdated(object? sender, AirPodsAdvertisement advertisement)
     {
@@ -230,5 +322,18 @@ public sealed partial class MainViewModel : ObservableObject
         IsCaseCharging = message.IsCaseCharging;
 
         LastUpdated = advertisement.Timestamp;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _connectionPollTimer.Stop();
+        _connectionPollTimer.Tick -= OnConnectionPollTick;
+        _monitor.StatusUpdated -= OnStatusUpdated;
     }
 }
