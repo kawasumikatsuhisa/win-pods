@@ -1,67 +1,69 @@
 using System.Runtime.Versioning;
 using Windows.Devices.Bluetooth;
 using WinPods.Core.Abstractions;
-using static WinPods.Windows.Bluetooth.NativeMethods;
 
 namespace WinPods.Windows.Bluetooth;
 
 /// <summary>
-/// Windows の Bluetooth 構成を変更せず、安全な範囲だけで接続状態を扱うコネクタ。
+/// Bluetooth オーディオドライバーのエンドポイントを使って接続 / 切断する。
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>BluetoothSetServiceState</c> は一時的な接続 / 切断 API ではなく、
-/// Bluetooth サービスに対応するドライバーの有効化 / 無効化を行う API である。
-/// そのため本クラスでは使用しない。
+/// RFCOMM のサービス問い合わせは ACL リンクを一時的に張るだけで、A2DP 接続を
+/// 確立しない。従来実装はその瞬間の fConnected を成功扱いしていたため、
+/// 「接続したように見えてすぐ切れる」状態になっていた。
 /// </para>
 /// <para>
-/// Windows の公開 API には、任意の Classic Bluetooth A2DP Sink へ確実に
-/// 接続・切断する API がない。接続時はデバイスを開いて SDP を更新することで
-/// Windows の自動接続を促し、実際に接続されたかを確認する。
-/// 切断は構成を壊す可能性のある代替手段を使わず、未サポートとして返す。
+/// 現在は Bluetooth オーディオエンドポイントの KS filter に
+/// KSPROPERTY_ONESHOT_RECONNECT / DISCONNECT を送り、エンドポイントが ACTIVE に
+/// なったかどうかで実際のオーディオ接続を判定する。
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("windows10.0.17763.0")]
 public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
 {
-    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(4);
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(300);
 
-    /// <inheritdoc />
     public async Task<AudioProfileOperationResult> ConnectAsync(
         ulong deviceAddress,
         CancellationToken cancellationToken = default)
     {
-        if (await IsConnectedAsync(deviceAddress, cancellationToken).ConfigureAwait(false) == true)
-        {
-            return AudioProfileOperationResult.Success();
-        }
-
         try
         {
-            // BluetoothDevice を開き、キャッシュを使わずサービスを問い合わせる。
-            // これはデバイス / ドライバー構成を変更せず、ACL リンクと Windows の
-            // 自動接続を促すための best-effort 操作。
-            using BluetoothDevice? device = await BluetoothDevice
-                .FromBluetoothAddressAsync(deviceAddress)
-                .AsTask(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (device is null)
+            string? deviceName = await GetDeviceNameAsync(deviceAddress, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(deviceName))
             {
-                return AudioProfileOperationResult.Failure("Bluetooth デバイスを開けませんでした");
+                return AudioProfileOperationResult.Failure("Bluetooth デバイス名を取得できませんでした");
             }
 
-            _ = await device
-                .GetRfcommServicesAsync(BluetoothCacheMode.Uncached)
-                .AsTask(cancellationToken)
-                .ConfigureAwait(false);
+            BluetoothAudioEndpointController.Endpoint? endpoint =
+                BluetoothAudioEndpointController.FindBestEndpoint(deviceName);
+
+            if (endpoint is null)
+            {
+                return AudioProfileOperationResult.Failure(
+                    $"{deviceName} の Bluetooth オーディオエンドポイントが見つかりませんでした");
+            }
+
+            if (endpoint.IsActive)
+            {
+                return AudioProfileOperationResult.Success();
+            }
+
+            if (!BluetoothAudioEndpointController.Connect(endpoint.Id))
+            {
+                return AudioProfileOperationResult.Failure(
+                    "Bluetooth オーディオドライバーへ接続要求を送れませんでした");
+            }
 
             DateTime deadline = DateTime.UtcNow + ConnectTimeout;
-
             do
             {
-                if (await IsConnectedAsync(deviceAddress, cancellationToken).ConfigureAwait(false) == true)
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id))
                 {
                     return AudioProfileOperationResult.Success();
                 }
@@ -71,7 +73,7 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
             while (DateTime.UtcNow < deadline);
 
             return AudioProfileOperationResult.Failure(
-                "Windows の公開 API では接続を開始できませんでした。Bluetooth 設定から接続してください");
+                "接続要求は送信しましたが、オーディオエンドポイントが有効になりませんでした");
         }
         catch (OperationCanceledException)
         {
@@ -83,38 +85,101 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
         }
     }
 
-    /// <inheritdoc />
-    public Task<AudioProfileOperationResult> DisconnectAsync(
+    public async Task<AudioProfileOperationResult> DisconnectAsync(
         ulong deviceAddress,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            string? deviceName = await GetDeviceNameAsync(deviceAddress, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(deviceName))
+            {
+                return AudioProfileOperationResult.Failure("Bluetooth デバイス名を取得できませんでした");
+            }
 
-        return Task.FromResult(AudioProfileOperationResult.Failure(
-            "安全に切断できる公開 API がないため、Bluetooth 設定から切断してください"));
+            BluetoothAudioEndpointController.Endpoint? endpoint =
+                BluetoothAudioEndpointController.FindBestEndpoint(deviceName);
+
+            if (endpoint is null)
+            {
+                return AudioProfileOperationResult.Failure(
+                    $"{deviceName} の Bluetooth オーディオエンドポイントが見つかりませんでした");
+            }
+
+            if (!endpoint.IsActive)
+            {
+                return AudioProfileOperationResult.Success();
+            }
+
+            if (!BluetoothAudioEndpointController.Disconnect(endpoint.Id))
+            {
+                return AudioProfileOperationResult.Failure(
+                    "Bluetooth オーディオドライバーへ切断要求を送れませんでした");
+            }
+
+            DateTime deadline = DateTime.UtcNow + DisconnectTimeout;
+            do
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id))
+                {
+                    return AudioProfileOperationResult.Success();
+                }
+
+                await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
+            }
+            while (DateTime.UtcNow < deadline);
+
+            return AudioProfileOperationResult.Failure(
+                "切断要求は送信しましたが、オーディオエンドポイントがまだ有効です");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return AudioProfileOperationResult.Failure(ex.Message);
+        }
     }
 
-    /// <inheritdoc />
-    public Task<bool?> IsConnectedAsync(
+    public async Task<bool?> IsConnectedAsync(
         ulong deviceAddress,
-        CancellationToken cancellationToken = default) =>
-        Task.Run(
-            () =>
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            string? deviceName = await GetDeviceNameAsync(deviceAddress, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(deviceName))
             {
-                bool? connected = null;
+                return null;
+            }
 
-                BluetoothRadios.ForEach(radio =>
-                {
-                    if (BluetoothRadios.GetDeviceInfo(radio, deviceAddress, out BLUETOOTH_DEVICE_INFO info) != ERROR_SUCCESS)
-                    {
-                        return false;
-                    }
+            BluetoothAudioEndpointController.Endpoint? endpoint =
+                BluetoothAudioEndpointController.FindBestEndpoint(deviceName);
 
-                    connected = info.fConnected;
-                    return true;
-                });
+            return endpoint?.IsActive;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
-                return connected;
-            },
-            cancellationToken);
+    private static async Task<string?> GetDeviceNameAsync(
+        ulong deviceAddress,
+        CancellationToken cancellationToken)
+    {
+        using BluetoothDevice? device = await BluetoothDevice
+            .FromBluetoothAddressAsync(deviceAddress)
+            .AsTask(cancellationToken)
+            .ConfigureAwait(false);
+
+        return device?.Name;
+    }
 }
