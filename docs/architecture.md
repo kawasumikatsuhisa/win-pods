@@ -3,104 +3,134 @@
 ## 全体像
 
 ```
-        BLE アドバタイズ                     Win32 / WinRT
-              │                                   │
-              ▼                                   ▼
-  BluetoothLeAirPodsWatcher        BluetoothServiceStateConnector
-  WindowsPairedDeviceProvider      (A2DP / HFP の接続・切断)
-              │  (WinPods.Windows)                │
-              ▼                                   │
-      IAirPodsAdvertisementWatcher ──┐            │
-                                     ▼            ▼
+        BLE アドバタイズ                       Win32 / WinRT
+              │                                     │
+              ▼                                     ▼
+  BluetoothLeAirPodsWatcher          SafeBluetoothAudioConnector
+  WindowsPairedDeviceProvider        BluetoothDiagnostics
+              │  (WinPods.Windows)                  │
+              ▼                                     │
+      IAirPodsAdvertisementWatcher ──┐              │
+                                     ▼              ▼
                               AirPodsMonitor ── MainViewModel
-                          (状態保持・蓋の検出)        │
-                                                    ▼
-                                        TrayIconHost / PopupWindow
-                                                (WinPods.App)
+                          (状態保持・蓋の検出)          │
+                                                      ▼
+                                          TrayIconHost / PopupWindow
+                                                  (WinPods.App)
 ```
 
 ## プロジェクト構成
 
 | プロジェクト | TFM | 役割 |
 | --- | --- | --- |
-| `WinPods.Core` | `net8.0` | Proximity Pairing のデコード、状態モデル、OS 抽象化インターフェイス。**OS 非依存**なのでどこでもテストできる。 |
-| `WinPods.Windows` | `net8.0-windows10.0.19041.0` | WinRT / Win32 の実装。BLE スキャン、ペアリング済みデバイスの列挙、A2DP/HFP の接続制御。 |
+| `WinPods.Core` | `net8.0` | Proximity Pairing のデコード、状態モデル、対象デバイス選択、OS 抽象化インターフェイス。**OS 非依存**なのでどこでもテストできる。 |
+| `WinPods.Windows` | `net8.0-windows10.0.19041.0` | WinRT / Win32 の実装。BLE スキャン、ペアリング済みデバイスの列挙、接続状態取得、Bluetooth 診断。 |
 | `WinPods.App` | `net8.0-windows10.0.19041.0` (WPF) | タスクトレイ常駐の UI。ポップアップ、コンテキストメニュー。 |
 | `WinPods.Core.Tests` | `net8.0` | `WinPods.Core` の単体テスト。 |
 
-デコードのロジックを OS 非依存の `WinPods.Core` に閉じ込めているのが要点で、
-プロトコル解析のような一番壊れやすい部分をテストで固められるようにしている。
+デコードや対象デバイス選択のロジックを OS 非依存の `WinPods.Core` に置き、
+Windows 実機がなくても壊れやすい判断ロジックをテストできるようにしている。
 
 ## 技術選定の理由
 
 ### WPF を選んだ理由
 
 WinUI 3 のほうが見た目は現代的だが、このアプリはウィンドウを持たず
-タスクトレイに常駐するのが主用途で、WinUI 3 はそこが弱い
-(NotifyIcon 相当が標準にない、非パッケージ実行の取り回しが面倒)。
+タスクトレイに常駐するのが主用途で、WPF のほうが取り回しがよい。
 
-WinRT の Bluetooth API は TFM を `net8.0-windows10.0.19041.0` にすれば
-WPF からもそのまま呼べるため、WinUI 3 を選ぶ動機は薄い。
+WinRT の Bluetooth API は Windows 向け TFM を指定すれば WPF からも呼べるため、
+Bluetooth のためだけに WinUI 3 を採用する必要はない。
 
-### 接続制御に Win32 API を使う理由
+## BLE バッテリー監視
 
-クラシック Bluetooth のオーディオプロファイル (A2DP / HFP) を能動的に
-接続・切断する公開 WinRT API は存在しない。Win32 の
-`BluetoothSetServiceState` にサービスクラス GUID を渡す方法を採る。
+`BluetoothLeAirPodsWatcher` が `BluetoothLEAdvertisementWatcher` を使って
+Apple Company ID (`0x004C`) の Manufacturer Data を監視する。
+`ProximityPairingParser` が Continuity Proximity Pairing (`0x07 0x19`) をデコードし、
+左右・ケースの残量と充電フラグを `AirPodsMonitor` へ渡す。
 
-- A2DP Sink: `{0000110B-0000-1000-8000-00805F9B34FB}`
-- Hands-Free: `{0000111E-0000-1000-8000-00805F9B34FB}`
+BLE コールバックは WinRT のスレッドプールから発火するため、`AirPodsMonitor` は
+内部状態をロックで守り、UI 反映は `Dispatcher.BeginInvoke` を経由する。
 
-#### 危険: BLUETOOTH_SERVICE_DISABLE は「切断」ではない
+## 対象デバイスの選択
 
-`BluetoothSetServiceState` に `BLUETOOTH_SERVICE_DISABLE` を渡す操作は、
-一時的な切断ではなく **そのデバイスからオーディオプロファイルの登録を外す**。
-`BluetoothEnumerateInstalledServices` の一覧から当該 GUID が消える。
+BLE アドバタイズのランダムアドレスと、Classic Bluetooth でペアリングされた
+デバイスのアドレスは一致しない。このため BLE パケットだけから
+「どのペアリング済み AirPods か」を厳密に対応づけることはできない。
 
-通常は `BLUETOOTH_SERVICE_ENABLE` で戻せるが、後述のとおり ENABLE が
-`ERROR_INVALID_PARAMETER(87)` を返す環境では**戻せない**。実際に
-Windows 11 build 26200 + AirPods Pro で、切断操作によって `110b` (A2DP Sink) と
-`111e` (HFP) が登録から消え、Windows が AirPods をオーディオ機器として
-扱えなくなる事象を発生させた。復旧にはデバイスの削除と再ペアリングが必要だった。
+一方、以前の実装のように `WindowsPairedDeviceProvider` が返す先頭の機器を
+そのまま採用するのも安全ではない。OS の列挙順はユーザーの優先順位ではなく、
+Bluetooth スピーカーなど別のオーディオ機器を操作する可能性がある。
 
-このため切断処理は、**先に ENABLE を実行して成功することを確認できた場合のみ**
-DISABLE を実行する。ENABLE が失敗する環境では切断機能を提供しない。
+`PairedDeviceSelector` は次の順で対象を決める。
 
-#### 実測: BluetoothSetServiceState が 87 を返す環境がある
+1. 名前から AirPods / Beats と判断できる機器を優先し、その中では接続中を優先
+2. 名前で判断できない場合、接続中の機器が 1 台だけなら採用
+3. オーディオ機器自体が 1 台だけなら採用
+4. 複数候補から安全に決められない場合は null とし、操作しない
 
-Windows 11 build 26200 + AirPods Pro で、`BluetoothSetServiceState` が
-A2DP / HFP どちらも `ERROR_INVALID_PARAMETER(87)` を返す事例を確認している。
-このとき、
+将来はユーザーが対象デバイスを明示選択し、Bluetooth の安定した識別子を保存する
+設定画面を追加するのが望ましい。
 
-- `BluetoothGetDeviceInfo` は成功する (構造体サイズ 560、登録済み・認証済みとも True)
-- `BluetoothEnumerateInstalledServices` にも `110b` (A2DP Sink) と
-  `111e` (HFP) の両方が含まれている
+## Classic Bluetooth の接続制御
 
-つまり GUID もアドレスも構造体レイアウトも正しいのに拒否される。原因は未特定。
+### `BluetoothSetServiceState` を接続トグルに使わない
 
-このため接続処理は単発では諦めず、次の順で試して最初に実際に接続できたものを採る:
+Windows の `BluetoothSetServiceState` は、名前から想像しやすい
+「一時的に A2DP を接続 / 切断する API」ではない。
 
-1. ラジオハンドルを指定して `BluetoothSetServiceState(ENABLE)`
-2. `hRadio` に NULL を渡して同じ操作
-3. WinRT の `GetRfcommServicesAsync(Uncached)` で SDP 問い合わせを行い、
-   ACL リンクを張らせてオーディオドライバの自動接続を促す
+Microsoft の仕様では、サービスを ENABLE にすると対応するデバイスドライバーを
+インストールし、DISABLE にすると削除する操作である。
 
-どの手法がどう失敗したかは UI のステータス行に残す。トレイメニューの
-「診断情報をコピー」で、OS が認識しているサービス一覧を確認できる。
+実機でも Windows 11 build 26200 + AirPods Pro で DISABLE 後に A2DP / HFP の
+登録が消え、Windows が AirPods をオーディオ機器として扱えなくなり、
+再ペアリングが必要になる事象を確認した。
+
+このため現在の実行経路から `BluetoothSetServiceState` と、それを使っていた
+`BluetoothServiceStateConnector` は削除した。
+
+### 現在の `SafeBluetoothAudioConnector`
+
+Windows の公開 API には、任意の Classic Bluetooth A2DP Sink へ
+確実に「今すぐ接続」「安全に一時切断」する API がない。
+
+現在は次の方針とする。
+
+- 接続済みかどうかは `BluetoothGetDeviceInfo` の `fConnected` で確認する
+- 未接続時は `BluetoothDevice.FromBluetoothAddressAsync` でデバイスを開き、
+  `GetRfcommServicesAsync(BluetoothCacheMode.Uncached)` を実行して Windows の
+  自動接続を best-effort で促す
+- その後、実際の `fConnected` が変化した場合だけ成功とする
+- 切断は危険な代替手段を使わず、未サポートとして返す
+- UI から Windows の `ms-settings:bluetooth` を開けるようにする
+
+この方式は「必ずワンクリックで接続できる」ものではないが、デバイス構成を壊さない。
+完全な接続トグルを実現する場合は、将来の Windows 公開 API か、十分に検証した別の
+仕組みが必要。
+
+## 診断
+
+`BluetoothDiagnostics` は読み取り専用で、次をレポートする。
+
+- OS バージョン
+- Bluetooth ラジオ数
+- `BluetoothGetDeviceInfo` の結果
+- 接続 / 登録 / 認証状態
+- Class of Device
+- `BluetoothEnumerateInstalledServices` が返すサービス GUID 一覧
+
+トレイメニューの「診断情報をコピー」から取得できる。
 
 ## 既知の制約
 
-- **BLE アドレスとクラシック Bluetooth アドレスが一致しない。**
-  アドバタイズ元とペアリング済みデバイスを厳密に対応づけられないため、
-  v0.1 は「最も電波が強い Proximity Pairing 送信元 = ユーザーの AirPods」
-  「ペアリング済みオーディオデバイスの先頭 = 接続対象」という近似で動く。
-  複数のセットを使い分ける場合は破綻するので、設定でデバイスを選べるようにする必要がある。
+- **BLE アドレスと Classic Bluetooth アドレスが一致しない。** 複数セットを
+  厳密に識別するには設定で対象を固定する仕組みが必要。
+- **Classic Bluetooth の確実な接続 / 切断は未解決。** 現在は安全性を優先している。
 - バッテリー残量は 10% 刻み。プロトコル上それ以上の分解能は無い。
 - ケースの開閉検出は Lid Open Counter の変化に依存しており、
   アドバタイズを取りこぼすと検出できない。
 
-## スレッド
+## 終了処理
 
-`BluetoothLEAdvertisementWatcher.Received` は WinRT のスレッドプールから発火する。
-`AirPodsMonitor` はロックで内部状態を守り、UI への反映は
-`MainViewModel` / `TrayIconHost` 側で `Dispatcher.BeginInvoke` を通して行う。
+`BluetoothLeAirPodsWatcher.Dispose()` は WinRT watcher を停止してからイベント購読を解除する。
+以前は disposed フラグを先に立てていたため `Stop()` が早期 return し、スキャン停止処理が
+実行されない問題があった。
