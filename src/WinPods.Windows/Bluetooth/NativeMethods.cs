@@ -6,16 +6,9 @@ namespace WinPods.Windows.Bluetooth;
 /// bthprops.cpl (Bluetooth API) の P/Invoke 定義。
 /// </summary>
 /// <remarks>
-/// <para>
-/// クラシック Bluetooth のオーディオプロファイル (A2DP / HFP) を能動的に
-/// 接続・切断する公開 WinRT API は存在しないため、Win32 の
-/// <c>BluetoothSetServiceState</c> を使う。
-/// </para>
-/// <para>
 /// <c>LibraryImport</c> (ソースジェネレータ) ではなく <c>DllImport</c> を使っているのは、
 /// 前者が <c>AllowUnsafeBlocks</c> を要求するのと、<c>BLUETOOTH_DEVICE_INFO</c> が
 /// 固定長文字列を含む非 blittable 構造体でどのみち従来のマーシャリングが必要なため。
-/// </para>
 /// </remarks>
 internal static class NativeMethods
 {
@@ -24,18 +17,6 @@ internal static class NativeMethods
     internal const uint ERROR_SUCCESS = 0;
     internal const uint ERROR_NOT_FOUND = 1168;
     internal const uint ERROR_MORE_DATA = 234;
-
-    internal const uint BLUETOOTH_SERVICE_DISABLE = 0x00;
-    internal const uint BLUETOOTH_SERVICE_ENABLE = 0x01;
-
-    /// <summary>Advanced Audio Distribution Profile (A2DP) Sink。</summary>
-    internal static readonly Guid AudioSinkServiceClass = new("0000110B-0000-1000-8000-00805F9B34FB");
-
-    /// <summary>Hands-Free Profile (HFP)。</summary>
-    internal static readonly Guid HandsFreeServiceClass = new("0000111E-0000-1000-8000-00805F9B34FB");
-
-    /// <summary>Headset Profile (HSP)。HFP を持たない古いデバイス向け。</summary>
-    internal static readonly Guid HeadsetServiceClass = new("00001108-0000-1000-8000-00805F9B34FB");
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct BLUETOOTH_FIND_RADIO_PARAMS
@@ -92,13 +73,6 @@ internal static class NativeMethods
     /// <summary>アドレスを設定した構造体を渡すと、残りのフィールドを埋めて返す。</summary>
     [DllImport(BluetoothApis, SetLastError = true, CharSet = CharSet.Unicode)]
     internal static extern uint BluetoothGetDeviceInfo(IntPtr hRadio, ref BLUETOOTH_DEVICE_INFO pbtdi);
-
-    [DllImport(BluetoothApis, SetLastError = true, CharSet = CharSet.Unicode)]
-    internal static extern uint BluetoothSetServiceState(
-        IntPtr hRadio,
-        ref BLUETOOTH_DEVICE_INFO pbtdi,
-        ref Guid pGuidService,
-        uint dwServiceFlags);
 
     /// <summary>
     /// Windows がそのデバイスに対して認識しているサービスを列挙する。
