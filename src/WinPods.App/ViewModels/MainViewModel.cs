@@ -165,14 +165,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             IReadOnlyList<PairedDevice> devices =
                 await _pairedDeviceProvider.GetPairedAudioDevicesAsync().ConfigureAwait(true);
 
-            // v0.1 では最初に見つかったオーディオデバイスを対象にする。
-            // TODO: 設定画面で対象デバイスを選べるようにする。
-            _targetDevice = devices.FirstOrDefault();
+            _targetDevice = PairedDeviceSelector.Select(devices);
 
             if (_targetDevice is null)
             {
                 IsConnected = false;
-                StatusText = "ペアリング済みのオーディオデバイスがありません";
+                StatusText = devices.Count == 0
+                    ? "ペアリング済みのオーディオデバイスがありません"
+                    : "AirPods を特定できません。複数のオーディオ機器がペアリングされています";
                 return;
             }
 
@@ -271,7 +271,6 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
             report = $"直近のステータス: {lastStatus}{Environment.NewLine}{report}";
 
-            // Clipboard は他プロセスが掴んでいると失敗するので、リトライ付きで書き込む。
             Clipboard.SetDataObject(report, copy: true);
 
             StatusText = "診断情報をクリップボードにコピーしました";
