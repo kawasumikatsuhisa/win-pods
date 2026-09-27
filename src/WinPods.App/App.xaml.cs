@@ -56,7 +56,7 @@ public partial class App : Application
 
         _viewModel = new MainViewModel(
             _monitor,
-            new BluetoothServiceStateConnector(),
+            new SafeBluetoothAudioConnector(),
             new WindowsPairedDeviceProvider(),
             new BluetoothDiagnostics());
 
