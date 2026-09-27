@@ -22,8 +22,11 @@ namespace WinPods.Windows.Bluetooth;
 [SupportedOSPlatform("windows10.0.17763.0")]
 public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
 {
-    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(6);
-    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(4);
+    // Windows は接続要求を受け付けてから A2DP endpoint を ACTIVE にするまで
+    // 数秒以上かかることがある。6 秒では実機で「失敗」表示後に接続完了する
+    // ケースがあったため、十分な猶予を持たせる。
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(300);
 
     public async Task<AudioProfileOperationResult> ConnectAsync(
@@ -73,7 +76,7 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
             while (DateTime.UtcNow < deadline);
 
             return AudioProfileOperationResult.Failure(
-                "接続要求は送信しましたが、オーディオエンドポイントが有効になりませんでした");
+                "接続要求は送信しましたが、15 秒以内にオーディオエンドポイントが有効になりませんでした");
         }
         catch (OperationCanceledException)
         {
