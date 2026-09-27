@@ -23,11 +23,12 @@ namespace WinPods.Windows.Bluetooth;
 public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
 {
     // Windows は接続要求を受け付けてから A2DP endpoint を ACTIVE にするまで
-    // 数秒以上かかることがある。6 秒では実機で「失敗」表示後に接続完了する
-    // ケースがあったため、十分な猶予を持たせる。
-    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(15);
+    // かなり時間がかかる場合がある。実機では 15 秒付近で接続完了するケースが
+    // あったため、余裕を持って待機し、タイムアウト境界でも最終確認する。
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan FinalActivationGrace = TimeSpan.FromSeconds(2);
 
     public async Task<AudioProfileOperationResult> ConnectAsync(
         ulong deviceAddress,
@@ -75,8 +76,15 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
             }
             while (DateTime.UtcNow < deadline);
 
+            // タイムアウト境界で Windows 側の状態反映と競合するケースを吸収する。
+            await Task.Delay(FinalActivationGrace, cancellationToken).ConfigureAwait(false);
+            if (BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id))
+            {
+                return AudioProfileOperationResult.Success();
+            }
+
             return AudioProfileOperationResult.Failure(
-                "接続要求は送信しましたが、15 秒以内にオーディオエンドポイントが有効になりませんでした");
+                "接続要求は送信しましたが、オーディオエンドポイントが有効になりませんでした");
         }
         catch (OperationCanceledException)
         {
