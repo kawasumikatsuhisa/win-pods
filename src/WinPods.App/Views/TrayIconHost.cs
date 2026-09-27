@@ -60,6 +60,9 @@ public sealed class TrayIconHost : IDisposable
         var refresh = new MenuItem { Header = "状態を更新" };
         refresh.SetBinding(MenuItem.CommandProperty, new System.Windows.Data.Binding(nameof(MainViewModel.RefreshCommand)));
 
+        var bluetoothSettings = new MenuItem { Header = "Bluetooth 設定を開く" };
+        bluetoothSettings.SetBinding(MenuItem.CommandProperty, new System.Windows.Data.Binding(nameof(MainViewModel.OpenBluetoothSettingsCommand)));
+
         var diagnostics = new MenuItem { Header = "診断情報をコピー" };
         diagnostics.SetBinding(MenuItem.CommandProperty, new System.Windows.Data.Binding(nameof(MainViewModel.CopyDiagnosticsCommand)));
 
@@ -68,6 +71,7 @@ public sealed class TrayIconHost : IDisposable
 
         menu.Items.Add(toggle);
         menu.Items.Add(refresh);
+        menu.Items.Add(bluetoothSettings);
         menu.Items.Add(diagnostics);
         menu.Items.Add(new Separator());
         menu.Items.Add(exit);
