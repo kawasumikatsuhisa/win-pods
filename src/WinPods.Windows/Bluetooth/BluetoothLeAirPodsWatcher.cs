@@ -71,6 +71,11 @@ public sealed class BluetoothLeAirPodsWatcher : IAirPodsAdvertisementWatcher
             return;
         }
 
+        StopCore();
+    }
+
+    private void StopCore()
+    {
         if (_watcher.Status is BluetoothLEAdvertisementWatcherStatus.Started)
         {
             _watcher.Stop();
@@ -119,8 +124,10 @@ public sealed class BluetoothLeAirPodsWatcher : IAirPodsAdvertisementWatcher
             return;
         }
 
-        _disposed = true;
+        // disposed を立てる前に watcher を停止する。
+        // Stop() は disposed 後には何もしないため、順序を逆にするとスキャンが残り続ける。
+        StopCore();
         _watcher.Received -= OnAdvertisementReceived;
-        Stop();
+        _disposed = true;
     }
 }
