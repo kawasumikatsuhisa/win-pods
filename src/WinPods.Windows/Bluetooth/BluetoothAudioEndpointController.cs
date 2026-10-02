@@ -9,8 +9,8 @@ namespace WinPods.Windows.Bluetooth;
 /// </summary>
 /// <remarks>
 /// Bluetooth スタックの ACL 接続ではなく、実際のオーディオエンドポイントを対象にする。
-/// AirPods などの A2DP デバイスでは、エンドポイントが ACTIVE になった時点を
-/// 「オーディオ接続済み」と判定する。
+/// AirPods などでは再生 (A2DP / HFP) と録音 (HFP) の両方を列挙し、
+/// エンドポイントが ACTIVE になった時点をオーディオ接続済みと判定する。
 /// </remarks>
 [SupportedOSPlatform("windows")]
 internal static class BluetoothAudioEndpointController
@@ -27,7 +27,13 @@ internal static class BluetoothAudioEndpointController
     private const int DeviceStateUnplugged = 0x00000008;
     private const int StgmRead = 0;
 
-    internal sealed record Endpoint(string Id, string Name, bool IsActive);
+    internal enum EndpointDirection
+    {
+        Render,
+        Capture,
+    }
+
+    internal sealed record Endpoint(string Id, string Name, bool IsActive, EndpointDirection Direction);
 
     public static IReadOnlyList<Endpoint> GetBluetoothAudioEndpoints()
     {
@@ -36,40 +42,8 @@ internal static class BluetoothAudioEndpointController
 
         try
         {
-            enumerator.EnumAudioEndpoints(
-                EDataFlow.Render,
-                DeviceStateActive | DeviceStateUnplugged,
-                out IMMDeviceCollection collection);
-
-            try
-            {
-                collection.GetCount(out int count);
-
-                for (int i = 0; i < count; i++)
-                {
-                    collection.Item(i, out IMMDevice device);
-
-                    try
-                    {
-                        if (!IsBluetoothEndpoint(device))
-                        {
-                            continue;
-                        }
-
-                        device.GetId(out string id);
-                        device.GetState(out int state);
-                        result.Add(new Endpoint(id, GetFriendlyName(device), state == DeviceStateActive));
-                    }
-                    finally
-                    {
-                        Marshal.ReleaseComObject(device);
-                    }
-                }
-            }
-            finally
-            {
-                Marshal.ReleaseComObject(collection);
-            }
+            AddBluetoothAudioEndpoints(enumerator, EDataFlow.Render, EndpointDirection.Render, result);
+            AddBluetoothAudioEndpoints(enumerator, EDataFlow.Capture, EndpointDirection.Capture, result);
         }
         finally
         {
@@ -79,14 +53,23 @@ internal static class BluetoothAudioEndpointController
         return result;
     }
 
-    public static Endpoint? FindBestEndpoint(string deviceName)
+    public static IReadOnlyList<Endpoint> FindMatchingEndpoints(string deviceName)
     {
         IReadOnlyList<Endpoint> endpoints = GetBluetoothAudioEndpoints();
         string target = NormalizeName(deviceName);
 
         return endpoints
             .Where(endpoint => NamesMatch(NormalizeName(endpoint.Name), target))
+            .OrderBy(endpoint => endpoint.Direction)
+            .ThenByDescending(endpoint => endpoint.IsActive)
+            .ToArray();
+    }
+
+    public static Endpoint? FindBestEndpoint(string deviceName)
+    {
+        return FindMatchingEndpoints(deviceName)
             .OrderByDescending(endpoint => endpoint.IsActive)
+            .ThenBy(endpoint => endpoint.Direction)
             .FirstOrDefault();
     }
 
@@ -118,6 +101,52 @@ internal static class BluetoothAudioEndpointController
         finally
         {
             Marshal.ReleaseComObject(enumerator);
+        }
+    }
+
+    private static void AddBluetoothAudioEndpoints(
+        IMMDeviceEnumerator enumerator,
+        EDataFlow dataFlow,
+        EndpointDirection direction,
+        List<Endpoint> result)
+    {
+        enumerator.EnumAudioEndpoints(
+            dataFlow,
+            DeviceStateActive | DeviceStateUnplugged,
+            out IMMDeviceCollection collection);
+
+        try
+        {
+            collection.GetCount(out int count);
+
+            for (int i = 0; i < count; i++)
+            {
+                collection.Item(i, out IMMDevice device);
+
+                try
+                {
+                    if (!IsBluetoothEndpoint(device))
+                    {
+                        continue;
+                    }
+
+                    device.GetId(out string id);
+                    device.GetState(out int state);
+                    result.Add(new Endpoint(
+                        id,
+                        GetFriendlyName(device),
+                        state == DeviceStateActive,
+                        direction));
+                }
+                finally
+                {
+                    Marshal.ReleaseComObject(device);
+                }
+            }
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(collection);
         }
     }
 
