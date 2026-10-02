@@ -15,18 +15,19 @@ namespace WinPods.Windows.Bluetooth;
 /// </para>
 /// <para>
 /// 現在は Bluetooth オーディオエンドポイントの KS filter に
-/// KSPROPERTY_ONESHOT_RECONNECT / DISCONNECT を送り、エンドポイントが ACTIVE に
-/// なったかどうかで実際のオーディオ接続を判定する。
+/// KSPROPERTY_ONESHOT_RECONNECT / DISCONNECT を送り、再生 Endpoint に加えて
+/// HFP の録音 Endpoint も起こす。これにより Teams 等からマイクが見える状態を
+/// Windows の Bluetooth 設定から接続した場合に近づける。
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("windows10.0.17763.0")]
 public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
 {
-    // Windows は接続要求を受け付けてから A2DP endpoint を ACTIVE にするまで
+    // Windows は接続要求を受け付けてから Bluetooth audio endpoint を ACTIVE にするまで
     // かなり時間がかかる場合がある。実機では 15 秒付近で接続完了するケースが
     // あったため、余裕を持って待機し、タイムアウト境界でも最終確認する。
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan FinalActivationGrace = TimeSpan.FromSeconds(2);
 
@@ -42,21 +43,39 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
                 return AudioProfileOperationResult.Failure("Bluetooth デバイス名を取得できませんでした");
             }
 
-            BluetoothAudioEndpointController.Endpoint? endpoint =
-                BluetoothAudioEndpointController.FindBestEndpoint(deviceName);
+            IReadOnlyList<BluetoothAudioEndpointController.Endpoint> endpoints =
+                BluetoothAudioEndpointController.FindMatchingEndpoints(deviceName);
 
-            if (endpoint is null)
+            if (endpoints.Count == 0)
             {
                 return AudioProfileOperationResult.Failure(
                     $"{deviceName} の Bluetooth オーディオエンドポイントが見つかりませんでした");
             }
 
-            if (endpoint.IsActive)
+            if (AreRequiredEndpointsActive(endpoints))
             {
                 return AudioProfileOperationResult.Success();
             }
 
-            if (!BluetoothAudioEndpointController.Connect(endpoint.Id))
+            bool requestAccepted = false;
+
+            // A2DP / HFP の再生側だけでなく HFP の録音側にも再接続要求を送る。
+            // 会社 PC などでは再生だけ ACTIVE になり、Teams のマイク候補に
+            // AirPods が現れないケースがあるため、同一デバイスの Endpoint 群を
+            // 一つの接続単位として扱う。
+            foreach (BluetoothAudioEndpointController.Endpoint endpoint in endpoints)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id))
+                {
+                    continue;
+                }
+
+                requestAccepted |= BluetoothAudioEndpointController.Connect(endpoint.Id);
+            }
+
+            if (!requestAccepted && !AreRequiredEndpointsActive(endpoints))
             {
                 return AudioProfileOperationResult.Failure(
                     "Bluetooth オーディオドライバーへ接続要求を送れませんでした");
@@ -67,7 +86,7 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id))
+                if (AreRequiredEndpointsActive(endpoints))
                 {
                     return AudioProfileOperationResult.Success();
                 }
@@ -78,9 +97,24 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
 
             // タイムアウト境界で Windows 側の状態反映と競合するケースを吸収する。
             await Task.Delay(FinalActivationGrace, cancellationToken).ConfigureAwait(false);
-            if (BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id))
+            if (AreRequiredEndpointsActive(endpoints))
             {
                 return AudioProfileOperationResult.Success();
+            }
+
+            bool renderActive = IsAnyDirectionActive(
+                endpoints,
+                BluetoothAudioEndpointController.EndpointDirection.Render);
+            bool captureExists = endpoints.Any(endpoint =>
+                endpoint.Direction == BluetoothAudioEndpointController.EndpointDirection.Capture);
+            bool captureActive = IsAnyDirectionActive(
+                endpoints,
+                BluetoothAudioEndpointController.EndpointDirection.Capture);
+
+            if (renderActive && captureExists && !captureActive)
+            {
+                return AudioProfileOperationResult.Failure(
+                    "スピーカーは接続されましたが、AirPods のマイクが有効になりませんでした");
             }
 
             return AudioProfileOperationResult.Failure(
@@ -108,21 +142,34 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
                 return AudioProfileOperationResult.Failure("Bluetooth デバイス名を取得できませんでした");
             }
 
-            BluetoothAudioEndpointController.Endpoint? endpoint =
-                BluetoothAudioEndpointController.FindBestEndpoint(deviceName);
+            IReadOnlyList<BluetoothAudioEndpointController.Endpoint> endpoints =
+                BluetoothAudioEndpointController.FindMatchingEndpoints(deviceName);
 
-            if (endpoint is null)
+            if (endpoints.Count == 0)
             {
                 return AudioProfileOperationResult.Failure(
                     $"{deviceName} の Bluetooth オーディオエンドポイントが見つかりませんでした");
             }
 
-            if (!endpoint.IsActive)
+            if (!endpoints.Any(endpoint => BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id)))
             {
                 return AudioProfileOperationResult.Success();
             }
 
-            if (!BluetoothAudioEndpointController.Disconnect(endpoint.Id))
+            bool requestAccepted = false;
+            foreach (BluetoothAudioEndpointController.Endpoint endpoint in endpoints)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id))
+                {
+                    continue;
+                }
+
+                requestAccepted |= BluetoothAudioEndpointController.Disconnect(endpoint.Id);
+            }
+
+            if (!requestAccepted)
             {
                 return AudioProfileOperationResult.Failure(
                     "Bluetooth オーディオドライバーへ切断要求を送れませんでした");
@@ -133,7 +180,7 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (!BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id))
+                if (!endpoints.Any(endpoint => BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id)))
                 {
                     return AudioProfileOperationResult.Success();
                 }
@@ -167,10 +214,24 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
                 return null;
             }
 
-            BluetoothAudioEndpointController.Endpoint? endpoint =
-                BluetoothAudioEndpointController.FindBestEndpoint(deviceName);
+            IReadOnlyList<BluetoothAudioEndpointController.Endpoint> endpoints =
+                BluetoothAudioEndpointController.FindMatchingEndpoints(deviceName);
 
-            return endpoint?.IsActive;
+            if (endpoints.Count == 0)
+            {
+                return null;
+            }
+
+            // UI 上の「接続済み」は、通常の音声再生が可能な Render Endpoint を基準にする。
+            // Capture がまだ上がっていない場合でも接続そのものまで未接続扱いにはしない。
+            IReadOnlyList<BluetoothAudioEndpointController.Endpoint> renderEndpoints = endpoints
+                .Where(endpoint => endpoint.Direction == BluetoothAudioEndpointController.EndpointDirection.Render)
+                .ToArray();
+
+            IEnumerable<BluetoothAudioEndpointController.Endpoint> candidates =
+                renderEndpoints.Count > 0 ? renderEndpoints : endpoints;
+
+            return candidates.Any(endpoint => BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id));
         }
         catch (OperationCanceledException)
         {
@@ -180,6 +241,33 @@ public sealed class SafeBluetoothAudioConnector : IAudioProfileConnector
         {
             return null;
         }
+    }
+
+    private static bool AreRequiredEndpointsActive(
+        IReadOnlyList<BluetoothAudioEndpointController.Endpoint> endpoints)
+    {
+        bool renderExists = endpoints.Any(endpoint =>
+            endpoint.Direction == BluetoothAudioEndpointController.EndpointDirection.Render);
+        bool captureExists = endpoints.Any(endpoint =>
+            endpoint.Direction == BluetoothAudioEndpointController.EndpointDirection.Capture);
+
+        bool renderActive = !renderExists || IsAnyDirectionActive(
+            endpoints,
+            BluetoothAudioEndpointController.EndpointDirection.Render);
+        bool captureActive = !captureExists || IsAnyDirectionActive(
+            endpoints,
+            BluetoothAudioEndpointController.EndpointDirection.Capture);
+
+        return renderActive && captureActive;
+    }
+
+    private static bool IsAnyDirectionActive(
+        IReadOnlyList<BluetoothAudioEndpointController.Endpoint> endpoints,
+        BluetoothAudioEndpointController.EndpointDirection direction)
+    {
+        return endpoints
+            .Where(endpoint => endpoint.Direction == direction)
+            .Any(endpoint => BluetoothAudioEndpointController.IsEndpointActive(endpoint.Id));
     }
 
     private static async Task<string?> GetDeviceNameAsync(
